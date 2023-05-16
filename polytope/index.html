@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title></title>
+    <style type="text/css">
+        canvas,div {
+            float: left;
+        }
+        ul {
+            list-style-type: none;
+        }
+        div {
+            height: 100vh;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="can" width="400" height="400"></canvas>
+    <div>
+        <ul></ul>
+    </div>
+    <script type="text/javascript" src="https://yan.works/plugin/simplevector-utility.js"></script>
+    <script type="text/javascript">
+        const can = document.getElementById("can");
+        const ctx = can.getContext("2d");
+
+        function clear(ctx) {
+            ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+        }
+
+        // const rawData   = [
+        //     1,0,0,0,0,0,0
+        //    ,0,1,0,0,0,0,0
+        //    ,0,0,1,0,0,0,0
+        //    ,0,0,0,1,0,0,0
+        //    ,0,0,0,0,1,0,0
+        //    ,0,0,0,0,0,1,0
+        //    ,0,0,0,0,0,0,1
+        //    ,1,0,0,0,0,0,0
+        // ];
+        const rawData   = [];
+        const dimension = 7;
+        const scale = 100;
+        const angle1 = 0;
+        const angle2 = 0;
+        const vecMove = new Array(dimension).fill(-1/dimension);
+        const matScale = SimpleVectorUtility.genScaleMatrix (dimension, scale);
+
+        const matRotes = [];
+
+
+        for (let ii = 0, ll = dimension; ii < ll; ii++) {
+            const row = new Array(dimension).fill(0);
+            row[ii] = 1;
+            Array.prototype.push.apply(rawData, row);
+        }
+        {
+            const row = new Array(dimension).fill(0);
+            row[0] = 1;
+            Array.prototype.push.apply(rawData, row);
+        }
+
+        const ul = document.querySelector("ul");
+        for (let ii = 0, ll = dimension**2; ii < ll; ii++) {
+            const axis1 = Math.trunc(ii / dimension);
+            const axis2 = ii % dimension;
+            matRotes.push(SimpleVectorUtility.genRotateMatrix(dimension, axis1, axis2, 0));
+
+
+
+            const li = document.createElement("li");
+            li.innerHTML = `<span>${axis1},${axis2}</span><input type="range" data-index="${ii}" min="0" max="1" step="0.01" value="0" onchange="onrange(arguments[0])"/>`;
+            ul.appendChild(li);
+        }
+
+
+        const cloneData = SimpleVectorUtility.clone(rawData);
+        SimpleVectorUtility.translate(dimension, cloneData, vecMove );
+        SimpleVectorUtility.transform(dimension, cloneData, matScale);
+
+/*
+        setInterval(function(){
+            clear(ctx);
+            matRotes.forEach((rot)=>{
+                SimpleVectorUtility.transform(dimension, cloneData, rot);
+            });
+
+            const buf = SimpleVectorUtility.toLower2D(dimension, SimpleVectorUtility.clone(cloneData));
+            SimpleVectorUtility.translate(2, buf, [scale, scale]);
+            SimpleVectorUtility.drawLine(ctx, buf);
+        },1000/60);
+*/
+
+        function draw () {
+            clear(ctx);
+
+            const buf = SimpleVectorUtility.clone(cloneData);
+            matRotes.forEach((rot)=>{
+                SimpleVectorUtility.transform(dimension, buf, rot);
+            });
+
+            SimpleVectorUtility.toLower2D(dimension, buf);
+            SimpleVectorUtility.translate(2, buf, [scale, scale]);
+            SimpleVectorUtility.drawLine(ctx, buf);
+        }
+        draw();
+
+
+        function onrange (event) {
+            const element = event.target;
+            const index   = parseInt(element.getAttribute("data-index"),10);
+            const value   = parseFloat(element.value);
+
+            const axis1 = Math.trunc(index / dimension);
+            const axis2 = index % dimension;
+
+            matRotes[index] = SimpleVectorUtility.genRotateMatrix(dimension, axis1, axis2, Math.PI * 2 *value);
+            draw();
+        }
+        
+
+
+        
+
+
+    </script>
+</body>
+</html>

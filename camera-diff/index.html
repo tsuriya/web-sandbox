@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>dHashTest</title>
+    <style>
+    canvas, video{
+      border: 1px solid gray;
+    }
+    </style>
+    <script src="https://yan.works/plugin/number-utility.js"></script>
+    <script src="https://yan.works/plugin/canvas-utility.js"></script>
+</head>
+<body>
+<video id="camera" width="300" height="200"></video>
+<canvas id="picture" width="300" height="200"></canvas>
+<script src="https://yan.works/bookmarklet/console.js"></script>
+<script>
+window.onload = () => {
+    const video  = document.querySelector("#camera");
+    const canvas = document.querySelector("#picture");
+    const ctx = canvas.getContext("2d");
+    
+    /** カメラ設定 */
+    const constraints = {
+        audio: false,
+        video: {
+            width:300,
+            height: 200,
+            facingMode: "user"   // フロントカメラを利用する
+            // facingMode: { exact: "environment" }  // リアカメラを利用する場合
+        }
+    };
+    
+    navigator.mediaDevices.getUserMedia(constraints)
+    .then( (stream) => {
+        video.srcObject = stream;
+        video.onloadedmetadata = (e) => {
+            canvas.width  = video.width;
+            canvas.height = video.height;
+            video.play();
+        };
+    })
+    .catch( (err) => {
+        console.log(err.name + ": " + err.message);
+    });
+
+    let before = null;
+    setInterval(function(){
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const hash = CanvasUtility.dHash(ctx.getImageData(0,0,canvas.width,canvas.height));
+        if (before) {
+           console.log(NumberUtility.hammingWeightFromBigInt(before,hash).toString());
+           //console.log(before.toString(16),hash.toString(16));
+        }
+        before = hash;
+    },1000/24);
+};
+</script>
+</body>
+</html>
+

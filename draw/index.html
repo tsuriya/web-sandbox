@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <style>
+        *{margin:0;padding:0;}
+        html,body{width:100%;height:100%;}
+        body{overscroll-behavior-y: none;background:#000;}
+        .main {width:100%;height:100%;position:fixed;top:0;left:0;background:#fff;}
+        .tools .btn,.right .btn{width:100%;height:30px;background:#aaa;display:block;}
+        .tools{width:30px;height:100%;position:fixed;top:0;left:0;background:#222;}
+        .right{width:30px;height:100%;position:fixed;right:0;background:#222;}
+        .header{width:calc(100% - 60px);height:30px;position:fixed;top:0;left:30px;background:#222;}
+        .header-button{float:right;}
+        .header-button .btn{width:50px;}
+        .footer{width:calc(100% - 60px);height:30px;position:fixed;bottom:0;left:30px;background:#222;}
+        #can {position:absolute;top:0;left:0;}
+    </style>
+    <script>
+        window.addEventListener("DOMContentLoaded",(e)=>{
+            let can = document.getElementById("can");
+            let ctx = can.getContext("2d");
+
+            let elColor = document.getElementById("color");
+            let elSize  = document.getElementById("size");
+
+            let rect = can.getBoundingClientRect();
+            rect.width  = parseInt(can.getAttribute("width" ),10);
+            rect.height = parseInt(can.getAttribute("height"),10);
+            function getPoint(x, y) {
+                const curRect = can.getBoundingClientRect();
+                const ratio = rect.width / curRect.width;
+                return [x*ratio-curRect.left*ratio,y*ratio-curRect.top*ratio];
+            }
+            function getColor() {
+                return elColor.value;
+            }
+            function setColor(color) {
+                elColor.value = color;
+            }
+            function getSize() {
+                return parseInt(elSize.value,10);
+            }
+            function setSize(size) {
+                elSize.value = size;
+            }
+            function clear () {
+                ctx.clearRect(0,0,rect.width,rect.height);
+            }
+            function resetZoom() {
+                can.style.width  = rect.width + "px";
+                can.style.height = rect.height+ "px";
+                can.style.top    = "0px";
+                can.style.left   = "0px";
+            }
+            function zoom (relX, relY, ratio, isRel) {
+                ratio = ratio || 1;
+                const curRect = isRel ? can.getBoundingClientRect() : rect;
+                
+                const size = [(curRect.width  * ratio), (curRect.height * ratio)];
+                
+                can.style.width  = size[0] + "px";
+                can.style.height = size[1] + "px";
+                
+                const pos  = [(- size[0] * relX + innerWidth  * 0.5), (- size[1] * relY + innerHeight * 0.5)];
+                can.style.left  = pos[0] + "px";
+                can.style.top   = pos[1] + "px";
+                rect.left  = pos[0];
+                rect.top   = pos[1];
+            }
+/*
+            function zoom(ratio, isRelative, oX, oY) {
+                const curRect = can.getBoundingClientRect();
+                if (isRelative) {
+                    can.style.width  = (curRect.width  * ratio) + "px";
+                    can.style.height = (curRect.height * ratio) + "px";
+                } else {
+                    can.style.width  = (rect.width     * ratio) + "px";
+                    can.style.height = (rect.height    * ratio) + "px";
+                }
+                const curRatio = rect.width / (curRect.width*ratio);
+                rect.top  = curRect.top;
+                rect.left = curRect.left;
+            }
+*/
+            function move(moveX, moveY, isRelative) {
+                if (isRelative) {
+                    can.style.top  = (moveY + rect.top ) + "px";
+                    can.style.left = (moveX + rect.left) + "px";
+                    rect.top  += moveX; 
+                    rect.left += moveY; 
+                } else {
+                    can.style.top  = moveX + "px";
+                    can.style.left = moveY + "px";
+                    rect.top  = moveX; 
+                    rect.left = moveY; 
+                }
+            }
+            function drawLine (ctx,x0,y0,x1,y1,size,color,hardness,opacity,arrLineWidth) {
+                ctx.lineWidth = size||1;
+                ctx.strokeStyle = color||"#000000";
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.moveTo(x0,y0);
+                ctx.lineTo(x1,y1);
+                ctx.stroke();
+            }
+            function erase (ctx,x0,y0,x1,y1,size,hardness,opacity,arrLineWidth) {
+                size = size || 1;
+                ctx.clearRect(x1,y1,size,size);
+            }
+
+            // 履歴
+            let historys = [];
+            let currentHistory = 0;
+            let historyMax = 20;
+            function addHistory () {
+                if(currentHistory<historys.length)historys.splice(currentHistory, historys.length - currentHistory);
+                historys.push(ctx.getImageData(0,0,rect.width,rect.height));
+                if(historys.length>historyMax){
+                    historys.unshift();
+                    historys.splice(0, historys.length-historyMax);
+
+                }
+                currentHistory = historys.length;
+            } 
+            function undoHistory () {
+                if(currentHistory==1)return;
+                ctx.putImageData(historys[--currentHistory-1],0,0);
+            } 
+            function redoHistory () {
+                if(currentHistory==historys.length)return;
+                ctx.putImageData(historys[++currentHistory-1],0,0);
+            } 
+            // 白紙の履歴追加
+            addHistory();
+
+            let currentTool = null;
+            let ToolSettings = [
+                {
+                    selector:"#brush" ,
+                    selected:(e, ctx, rect, variable)=>{
+                        if(variable.size)setSize(variable.size);
+                    },
+                    events:{
+                        mousedown : (e, ctx, rect, variable)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            variable.before=p.concat();
+                            variable.color=getColor();
+                            variable.size=getSize();
+                        },
+                        mousemove : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            let p = getPoint(e.clientX,e.clientY);
+                            let before = variable.before;
+                            drawLine(ctx,before[0],before[1],p[0],p[1],variable.size,variable.color);
+                            variable.before=p.concat();
+                        },
+                        mouseup   : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            variable.before = null;
+                            addHistory();
+                        },
+                    }
+                },
+                {
+                    selector:"#eras",
+                    selected:(e, ctx, rect, variable)=>{
+                        if(variable.size)setSize(variable.size);
+                    },
+                    events:{
+                        mousedown : (e, ctx, rect, variable)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            variable.before=p.concat();
+                            variable.size=getSize();
+                        },
+                        mousemove : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            let p = getPoint(e.clientX,e.clientY);
+                            let before = variable.before;
+                            erase(ctx,before[0],before[1],p[0],p[1],variable.size);
+                            variable.before=p.concat();
+                        },
+                        mouseup   : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            variable.before = null;
+                            addHistory();
+                        },
+                    },
+                },
+                {
+                    selector:"#line",
+                    selected:(e, ctx, rect, variable)=>{
+                        if(variable.size)setSize(variable.size);
+                    },
+                    events:{
+                        mousedown : (e, ctx, rect, variable)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            variable.before=p.concat();
+                            variable.size=getSize();
+                        },
+                        mouseup   : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            let p = getPoint(e.clientX,e.clientY);
+                            let before = variable.before;
+                            drawLine(ctx,before[0],before[1],p[0],p[1],variable.size,variable.color);
+                            variable.before = null;
+                            addHistory();
+                        },
+                    },
+                },
+                {
+                    selector:"#rect",
+                    selected:(e, ctx, rect, variable)=>{
+                        if(variable.size)setSize(variable.size);
+                    },
+                    events:{
+                        mousedown : (e, ctx, rect, variable)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            variable.before=p.concat();
+                            variable.size=getSize();
+                        },
+                        mouseup   : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            let p = getPoint(e.clientX,e.clientY);
+                            let before = variable.before;
+                            ctx.lineWidth   = variable.size;
+                            ctx.strokeStyle = variable.color;
+                            ctx.strokeRect(before[0],before[1],p[0]-before[0],p[1]-before[1]);
+                            variable.before = null;
+                            addHistory();
+                        },
+                    },
+                },
+                {
+                    selector:"#circle",
+                    selected:(e, ctx, rect, variable)=>{
+                        if(variable.size)setSize(variable.size);
+                    },
+                    events:{
+                        mousedown : (e, ctx, rect, variable)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            variable.before=p.concat();
+                            variable.size=getSize();
+                        },
+                        mouseup   : (e, ctx, rect, variable)=>{
+                            if(!variable.before)return;
+                            let p = getPoint(e.clientX,e.clientY);
+                            let before = variable.before;
+                            ctx.lineWidth   = variable.size;
+                            ctx.strokeStyle = variable.color;
+                            ctx.beginPath();
+                            ctx.ellipse(before[0], before[1], p[0]-before[0], p[1]-before[1], 0, 0, Math.PI*2);
+                            ctx.stroke();
+                            variable.before = null;
+                            addHistory();
+                        },
+                    },
+                },
+                {
+                    selector:"#move",
+                    selected:(e, ctx, rect, variable)=>{
+                        //move(0,0,false);
+                    },
+                    events:{
+                        touchstart : (e,ctx,rect,variable)=>{
+                            let t1 = e.changedTouches[0];
+                            let t2 = e.changedTouches[1];
+                            if(!t1||!t2)return;
+                            variable.before = [
+                                [t1.clientX,t1.clientY]
+                               ,[t2.clientX,t2.clientY]
+                            ];
+                        },
+                        touchmove  : (e,ctx,rect,variable)=>{
+                            let t1 = e.changedTouches[0];
+                            let t2 = e.changedTouches[1];
+                            if(!t1||!t2)return;
+                            let p = [
+                                [t1.clientX,t1.clientY]
+                               ,[t2.clientX,t2.clientY]
+                            ];
+                            if(!variable.before) {
+                                variable.before = p.concat();
+                                return;
+                            }
+                            let before = variable.before;
+                            move(p[0][0]-before[0][0],p[0][1]-before[0][1],true);
+                        },
+                        touchend   : (e,ctx,rect,variable)=>{
+                            if(!variable.before)return;
+                            variable.before = null;
+                        },
+                    }
+                },
+                {
+                    selector:"#zoom",
+                    selected:(e, ctx, rect, variable)=>{
+                        //resetZoom();
+                    },
+                    events:{
+                        touchstart : (e,ctx,rect,variable)=>{
+                            let t1 = e.changedTouches[0];
+                            let t2 = e.changedTouches[1];
+                            if(!t1||!t2)return;
+                            variable.before = [
+                                [t1.clientX,t1.clientY]
+                               ,[t2.clientX,t2.clientY]
+                            ];
+                        },
+                        touchmove  : (e,ctx,rect,variable)=>{
+                            let t1 = e.changedTouches[0];
+                            let t2 = e.changedTouches[1];
+                            if(!t1||!t2)return;
+                            let p = [
+                                [t1.clientX,t1.clientY]
+                               ,[t2.clientX,t2.clientY]
+                            ];
+                            if(!variable.before) {
+                                variable.before = p.concat();
+                                return;
+                            }
+                            let before = variable.before;
+                            
+                            const len1 = Math.sqrt(
+                                 Math.pow(before[0][0]-before[1][0],2)
+                                +Math.pow(before[0][1]-before[1][1],2)
+                            );
+                            const len2 = Math.sqrt(
+                                 Math.pow(p[0][0]-p[1][0],2)
+                                +Math.pow(p[0][1]-p[1][1],2)
+                            );
+                            const ratio = len2/len1;
+                            //zoom(ratio,true,before[0][0]*0.5+before[1][0]*0.5,before[0][1]*0.5+before[1][1]*0.5);
+                            let pos = getPoint((p[1][0]-p[0][0])*0.5+p[0][0], (p[1][1]-p[0][1])*0.5+p[0][1]);
+                            pos[0]/=rect.width;
+                            pos[1]/=rect.height;
+                            zoom(pos[0],pos[1],ratio,true);
+                        },
+                        touchend   : (e,ctx,rect,variable)=>{
+                            if(!variable.before)return;
+                            variable.before = null;
+                        },
+                    }
+                },
+                {
+                    selector:"#dropper" ,
+                    events:{
+                        click : (e,ctx)=>{
+                            let p = getPoint(e.clientX,e.clientY);
+                            const imgData = ctx.getImageData(p[0],p[1],1,1);
+                            const color = imgData.data;
+                            setColor("#"
+                                +("00"+color[0].toString(16)).slice(-2)
+                                +("00"+color[1].toString(16)).slice(-2)
+                                +("00"+color[2].toString(16)).slice(-2)
+                            );
+                        }
+                    },
+                },
+                {
+                    selector:"#cls" ,
+                    selected : clear
+                },
+                {
+                    selector:"#full" ,
+                    selected : function(){
+                        const fullFlg = document.fullscreenElement;
+                        if(!fullFlg)document.body.requestFullscreen();
+                        if( fullFlg)document.exitFullscreen();
+                    }
+                },
+                {
+                    selector:"#save" ,
+                    selected : function(e, ctx, rect){
+                        localStorage.setItem("drawData",ctx.canvas.toDataURL());
+                    }
+                },
+                {
+                    selector:"#load" ,
+                    selected : function(e, ctx, rect){
+                        //画像オブジェクトを生成
+                        let img = new Image();
+                        img.src = localStorage.getItem("drawData");;
+                       
+                        //画像をcanvasに設定
+                        img.onload = function(){
+                            clear();
+                            ctx.drawImage(img, 0, 0);
+                        }
+                        
+                    }
+                },
+                {
+                    selector:"#export" ,
+                    selected : function(e, ctx, rect){
+                        ctx.canvas.toDataURL();
+                    }
+                },
+                {
+                    selector:"#undo",
+                    selected :function(){
+                        undoHistory();
+                        return false;
+                    }
+                },
+                {
+                    selector:"#redo",
+                    selected :function(){
+                        redoHistory();
+                        return false;
+                    }
+                },
+            ].forEach((v,index)=>{
+                const el = document.querySelector(v.selector);
+                let variable={};
+                if(!el)return;
+                if (v.selected) {
+                    el.addEventListener("click",((fn, e)=>{
+                        if(currentTool===index){
+                            return false;
+                        }
+                        return fn.call(this, e, ctx, rect, variable);
+                    }).bind(el, v.selected));
+                }
+                if(v.events){
+                    el.addEventListener("click",()=>{
+                        if(currentTool===index){
+                            currentTool=null;
+                        }else{
+                            currentTool=index;
+                        }
+                    });
+                }
+
+                for (let name in v.events) {
+                    if (name === "mousedown"||name==="mousemove"||name==="mouseup") {
+                        let altEvent;
+                        if(name === "mousedown"){
+                            altEvent ="touchstart";
+                        }
+                        else if(name==="mousemove"){
+                            altEvent ="touchmove";
+                        }
+                        else if(name==="mouseup"){
+                            altEvent ="touchend";
+                        }
+                        can.addEventListener(altEvent,((fn, e)=>{
+                            if(currentTool!==index)return;
+                            let t = e.changedTouches[0];
+                            e.clientX=t.clientX;
+                            e.clientY=t.clientY;
+                            return fn.call(this, e, ctx, rect, variable);
+                        }).bind(can, v.events[name]));
+                    }
+                    can.addEventListener(name,((fn, e)=>{
+                        if(currentTool!==index)return;
+                        return fn.call(this, e, ctx, rect, variable);
+                    }).bind(can, v.events[name]));
+                } 
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="main">
+        <canvas id="can" width="2000" height="2000"></canvas>
+    </div>
+    <div class="tools">
+        <button class="btn tool_btn" id="brush"  >brush  </button>
+        <button class="btn tool_btn" id="eras"   >eraser </button>
+        <button class="btn tool_btn" id="line"   >line   </button>
+        <button class="btn tool_btn" id="rect"   >rect   </button>
+        <button class="btn tool_btn" id="circle" >circle </button>
+        <button class="btn tool_btn" id="dropper">dropper</button>
+        <button class="btn tool_btn" id="zoom"   >zoom   </button>
+        <button class="btn tool_btn" id="move"   >move   </button>
+        <button class="btn tool_btn" id="cls"    >clear  </button>
+    </div>
+    <div class="header">
+        <input type="color" id="color"/>
+        <input type="range" min="1" max="20" step="1" value="1" id="size"/>
+        <span class="header-button">
+            <button class="btn" id="undo">←</button>
+            <button class="btn" id="redo">→</button>
+        </span>
+    </div>
+    <div class="right">
+        <button class="btn" id="full">full</button>
+        <button class="btn" id="save">save</button>
+        <button class="btn" id="load">load</button>
+        <button class="btn" id="export">export</button>
+    </div>
+</body>
+<!--
+-->
+<script src="https://yan.works/bookmarklet/console.js"></script>
+</html>

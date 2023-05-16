@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <style type="text/css">
+        body {
+            overflow: hidden;
+        }
+        html,body,#can {
+            width:100%;
+            height:100%;
+            margin:0;
+        }
+        #ctrlPanel {
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+    </style>
+    <script src="/plugin/canvas-utility.js"></script>
+    <script src="/plugin/svg-utility.js"></script>
+    <script src="/plugin/vector-utility.js"></script>
+    <script src="/plugin/path-utility.js"></script>
+    <script src="/plugin/efect-image.js"></script>
+    <script type="text/javascript">
+        window.canUt;
+        window.efect;
+        // 輪状態保持
+        let ring = {
+            img : null,
+            data : null,
+            w   : 0,
+            h   : 0,
+            r   : 0
+        };
+        // 回転軸
+        let rotate = {
+            x : 0,
+            y : 0,
+            z : 0,
+        };
+        let zoom = 2;
+        const storageKey = "ring";
+        let storageData = (function(){
+            try {
+                return JSON.parse(localStorage.getItem(storageKey)) || {};
+            } catch (e) {
+                return {};
+            }
+        })();
+        window.addEventListener("DOMContentLoaded", (event) => {
+            // Canvasを初期化する
+            canUt = new CanvasUtility(document.getElementById("can"));
+            efect = new EfectImage();
+
+            // 画像データ読み込み処理
+            function loadImage (img) {
+                // 画像データをビットマップに変換する
+                ring.img  = img;
+                ring.w    = img.width;
+                ring.h    = img.height;
+                ring.r    = ring.w / (2 * Math.PI);
+                ring.data = [];
+
+                efect.setSize(img.width, img.height);
+                efect.clear();
+                efect.putImage(img);
+
+                // 画像データをローカルに保持する
+                storageData.image = efect.getDataURL();
+                localStorage.setItem(storageKey, JSON.stringify(storageData));
+                ring.data = efect.getImageData(0,0,img.width,img.height);
+
+                canUt.draw();
+            }
+
+            // SVGデータの取り込みを行う
+            function changeSvg () {
+                // SVGデータを画像取り込み
+                SVGUtility.toXMLImage(this.value)
+                .then(loadImage);
+            }
+            document.getElementById("ring-svg").onchange = changeSvg;
+
+            // 画像ファイルが読み込まれた場合はそちらを優先させる
+            function changeImage (e) {
+                var reader = new FileReader();
+                reader.onload = function (e) {
+                    const img = new Image();
+                    img.onload = function () {
+                        loadImage(img);
+                    }
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(e.target.files[0]);
+            }
+            document.getElementById("ring-image").onchange = changeImage;
+
+
+            //　初期化を行う
+            function clear () {
+                // ストレージにデータが存在しない場合はSVGから取得する
+                // changeSvg.call(document.getElementById("ring-svg"));
+                const img = new Image();
+                img.onload = function () {
+                    loadImage(img);
+                }
+                img.onerror = function () {
+                    // ストレージのデータが破損している場合はSVGから取得する
+                    changeSvg.call(document.getElementById("ring-svg"));
+                }
+                img.src = "./images/aaaa.png";
+            }
+
+            const saveImage = storageData.image;
+            // 保存している画像データが存在する場合はそのデータの再描画を行う
+            if (saveImage) {
+                const img = new Image();
+                img.onload = function () {
+                    loadImage(img);
+                }
+                img.onerror = function () {
+                    // ストレージのデータが破損している場合はSVGから取得する
+                    changeSvg.call(document.getElementById("ring-svg"));
+                }
+                img.src = saveImage;
+            } else {
+                clear();
+            }
+
+
+            // 回転を行う
+            function changeRotate (axis, angle) {
+                switch (axis) {
+                    case "X":
+                        rotate.x = angle;
+                    break;
+                    case "Y":
+                        rotate.y = angle;
+                    break;
+                    case "Z":
+                        rotate.z = angle;
+                    break;
+                }
+                canUt.draw();
+            }
+            Array.from(document.getElementsByClassName("ctrl-rotate"))
+            .forEach((v)=>{
+                function eve () {
+                    const axis  = this.getAttribute("data-axis");
+                    const value = Math.PI * 2 * (parseInt(this.value, 10)/100);
+                    return changeRotate(axis, value);
+                }
+                v.onchange = eve;
+                eve.call(v);
+            });
+
+            // ズームを行う
+            function changeZoom () {
+                zoom = Math.pow(10, (parseInt(this.value, 10)/100) * 2 - 1);
+                canUt.draw();
+            }
+            Array.from(document.getElementsByClassName("ctrl-zoom"))
+            .forEach((v)=>{
+                v.onchange = changeZoom;
+                changeZoom.call(v);
+            });
+            // 初期化を行う
+            document.getElementById("clear").onclick = clear;
+
+            // 射影変換(正)
+            function convPoint (img, x, y) {
+                const r = ring.r * zoom;
+                const angle = (x / img.width) * Math.PI * 2;
+                const originZ = 0;
+
+                let point = [
+                    r * Math.cos(angle)
+                  , (y - (img.height * 0.5)) * zoom + originZ
+                  , r * Math.sin(angle)
+                ];
+
+                point = VectorUtility.rotate3dY(point[0], point[1], point[2], rotate.y, 0, 0, originZ);
+                point = VectorUtility.rotate3dX(point[0], point[1], point[2], rotate.x, 0, 0, originZ);
+                point = VectorUtility.rotate3dZ(point[0], point[1], point[2], rotate.z, 0, 0, originZ);
+                return point;
+            }
+            // const camera1 = new Camera(0,0,0, 0,0,1, 0);
+            const camera1 = new Camera(0,-1,-1, 0,-2,-2, 0);
+            camera1.setFoculLength(0);
+            function convSurface1 (img, x, y) {
+                let point = convPoint(img, x, y);
+                point = camera1.getPutPoint(point[0], point[1], point[2]);
+                return point;
+            }
+            // 射影変換(鏡)
+            const camera2 = new Camera(0,-1,-1, 0,-2,-2, 0);
+            camera2.setFoculLength(0);
+            function convSurface2 (img, x, y) {
+                let point = convPoint(img, x, y);
+                point[2] *= -1;
+                point = camera2.getPutPoint(point[0], point[1], point[2]);
+                return point;
+            }
+            // 色変換(正)
+            function convColor1 (img, x, y, z, r, g, b, a) {
+                if (z>0&&a>0)return [0xaa, 0xaa, 0xaa, 0xff];
+                return [r, g, b, a];
+            }
+            // 色変換(鏡)
+            function convColor2 (img, x, y, z, r, g, b, a) {
+                const opacity = 1;
+                if (z>0&&a>0)return [0xaa, 0xaa, 0xaa, ~~(0xff*opacity)];
+                if (a>0)return [r, g, b, ~~(a*opacity)];
+                return [r, g, b, a];
+            }
+
+            // 描画レイヤー
+            const index = canUt.registLayer();
+            canUt.registStep(index, "draw", (ctx,t)=>{
+                if(!ring.data)return;
+                const rect = canUt.getRect();
+                const origin = [rect.width * 0.5, rect.height * 0.5];
+                ctx.putImageData(ring.data, origin[0] - (ring.w * 0.5), rect.height - ring.h - 20);
+                // 画像を描画する
+                canUt.projectionImageData(ring.data, convSurface2, origin[0], origin[1]-(200), convColor2);
+                canUt.projectionImageData(ring.data, convSurface1, origin[0], origin[1]+(200), convColor1);
+            });
+        });
+    </script>
+</head>
+<body>
+<canvas id="can"></canvas>
+<div id="ctrlPanel">
+    <ul>
+        <li>回転：</li>
+        <li><label>X:</label><input type="range" data-axis="X" min="0" max="100" value="0" class="ctrl-rotate"/></li>
+        <li><label>Y:</label><input type="range" data-axis="Y" min="0" max="100" value="0" class="ctrl-rotate"/></li>
+        <li><label>Z:</label><input type="range" data-axis="Z" min="0" max="100" value="0" class="ctrl-rotate"/></li>
+        <li>拡大/縮小：</li>
+        <li><label>T:</label><input type="range" min="0" max="100" value="50" class="ctrl-zoom"/></li>
+    </ul>
+    <ul>
+        <li><textarea id="ring-svg"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 343 52" width="343" height="52"><defs><style>.cls-1{fill:#e2e2e2;stroke:#000;stroke-miterlimit:10;}</style></defs><g id="レイヤー_2" data-name="レイヤー 2"><g id="レイヤー_1-2" data-name="レイヤー 1"><path class="cls-1" d="M171.5,34.5c-19-11-120-34-171-34v17c51,0,152,23,171,34,19-11,120-34,171-34V.5C291.5.5,190.5,23.5,171.5,34.5Z"/></g></g></svg></textarea></li>
+        <li><input type="file" id="ring-image"></li>
+        <li><button id="clear">クリア</button></li>
+    </ul>
+</div>
+</body>
+</html>

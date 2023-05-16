@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>test</title>
+    <style>
+    * {
+        margin: 0;
+        padding: 0;
+    }
+    body {
+        overflow: hidden;
+    }
+    #view {
+        position: relative;
+    }
+    #camera,#picture {
+        height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+    #view #camera, #view #picture {
+        width: 100vw;
+    }
+    #view.show-normal #camera, #view.show-normal #picture {
+        width: 50vw;
+    }
+    #view.show-normal #picture {
+        left: 50%;
+    }
+
+    </style>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <script src="https://yan.works/plugin/number-utility.js"></script>
+    <script src="https://yan.works/plugin/canvas-utility.js"></script>
+</head>
+<body>
+    <div id="view">
+        <video id="camera" width="300" height="200"></video><canvas id="picture" width="300" height="200"></canvas>
+    </div>
+<script>
+let video,canvas,ctx,rect,beforeImgData;
+
+window.check1 = false;
+window.check2 = false ;
+window.range  = 0.5;
+
+window.ondblclick = function () {
+    window.open("./controller.html", "controller", "menubar=no,location=no,resizable=no,scrollbars=no,status=no, width=300, height=300")
+}
+
+function onChangeNormal () {
+    if (check2) {
+        document.getElementById("view").classList.add   ("show-normal");
+    } else {
+        document.getElementById("view").classList.remove("show-normal");
+    }
+    rect = canvas.getBoundingClientRect();
+
+    video.width  = rect.width;
+    video.height = rect.height;
+
+    canvas.width  = rect.width;
+    canvas.height = rect.height;
+
+
+    
+    /** カメラ設定 */
+    const constraints = {
+        audio: false,
+        video: {
+            width : {ideal : rect.width},
+            height: {ideal : rect.height},
+            facingMode: "user"   // フロントカメラを利用する
+            // facingMode: { exact: "environment" }  // リアカメラを利用する場合
+        }
+    };
+    
+    navigator.mediaDevices.getUserMedia(constraints)
+    .then( (stream) => {
+        video.srcObject = stream;
+        video.onloadedmetadata = (e) => {
+            canvas.width  = rect.width;
+            canvas.height = rect.height;
+            video.play();
+        };
+    })
+    .catch( (err) => {
+        console.log(err.name + ": " + err.message);
+    });
+
+
+    beforeImgData = {
+        width : canvas.width,
+        height: canvas.height,
+        data  : new Uint8ClampedArray(canvas.width * canvas.height * 4)
+    };
+}
+window.onload = () => {
+    video  = document.querySelector("#camera");
+    canvas = document.querySelector("#picture");
+    ctx = canvas.getContext("2d");
+    onChangeNormal();
+
+    let before = null;
+
+    const kernel = 1;
+    const filter = (kernel===3)?[
+            1/16, 1/8, 1/16,
+            1/8, 1/4, 1/8,
+            1/16, 1/8, 1/16
+    ]:(
+        (kernel===5)?[
+            1/256,  4/256,  6/256,  4/256, 1/256, 
+            4/256, 16/256, 24/256, 16/256, 4/256, 
+            6/256, 24/256, 36/256, 24/256, 6/256, 
+            4/256, 16/256, 24/256, 16/256, 4/256, 
+            1/256,  4/256,  6/256,  4/256, 1/256, 
+        ]:[1]
+    );
+
+    const kernelSquare = filter.length;
+    const kernelSize   = ~~Math.sqrt(kernelSquare);
+    const kernelSize_2 = ~~(kernelSize/2);
+
+
+    setInterval(function(){
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+        
+        const ratio = 0xff * Number(range);
+        for (let ii=0,ll=imageData.data.length;ii<ll;ii+=4) {
+            const xx = ~~(ii/4)%imageData.width;
+            const yy = ~~((ii/4)/imageData.width);
+
+            let r = 0;
+            let g = 0;
+            let b = 0;
+            if (kernelSquare===1) {
+                r = imageData.data[ii+0];
+                g = imageData.data[ii+1];
+                b = imageData.data[ii+2];
+            } else {
+                for (let jj=0;jj<kernelSquare;jj++) {
+                    const yyy=~~(jj/kernelSize)-kernelSize_2;
+                    const xxx=  (jj%kernelSize)-kernelSize_2;
+                    if ((yy+yyy)<0||(yy+yyy)>=imageData.height
+                     || (xx+xxx)<0||(xx+xxx)>=imageData.width) {
+                        continue;
+                    }
+                    const index = ((yy+yyy)*imageData.width + (xx+xxx))*4;
+                    const s = Math.sqrt(4/Math.PI);
+                    const w = filter[jj];
+                    
+                    r+=imageData.data[index+0]*w;
+                    g+=imageData.data[index+1]*w;
+                    b+=imageData.data[index+2]*w;
+                }
+            }
+
+            let _r = beforeImgData.data[ii+0];
+            let _g = beforeImgData.data[ii+1];
+            let _b = beforeImgData.data[ii+2];
+
+            let v = (0.299*r + 0.587*g + 0.114*b);
+
+            const check = check1;
+
+            v = v>ratio ? 0 : 0xff;
+            if (check) {
+                v = !v ? 0xff : 0;
+            }
+
+
+            imageData.data[ii+0] = ~~(v + _r * 0.9);
+            imageData.data[ii+1] = ~~(v + _g * 0.9);
+            imageData.data[ii+2] = ~~(v + _b * 0.9);
+
+            imageData.data[ii+0] = imageData.data[ii+0]>0xff?0xff:imageData.data[ii+0];
+            imageData.data[ii+1] = imageData.data[ii+1]>0xff?0xff:imageData.data[ii+1];
+            imageData.data[ii+2] = imageData.data[ii+2]>0xff?0xff:imageData.data[ii+2];
+
+            beforeImgData.data[ii+0] = imageData.data[ii+0];
+            beforeImgData.data[ii+1] = imageData.data[ii+1];
+            beforeImgData.data[ii+2] = imageData.data[ii+2];
+            beforeImgData.data[ii+3] = imageData.data[ii+3];
+        }
+        ctx.putImageData(imageData, 0, 0);
+    },1000/24);
+};
+</script>
+</body>
+</html>
+

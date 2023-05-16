@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <style>
+        *{margin:0;padding:0;}
+        html,body,#can{
+            width:100%;
+            height:100%;
+        }
+    </style>
+    <script src="https://yan.works/plugin/gameoflife.js"></script>
+</head>
+<body>
+    <canvas id="can">
+    </canvas>
+    <script>
+        const can=document.getElementById("can");
+        const ctx=can.getContext("2d");
+        let rect;
+        const cellSize = 10;
+        let game = new GameOfLife(
+            Math.floor(screen.width/cellSize)
+           ,Math.floor(screen.height/cellSize)
+           ,null
+           ,null
+           ,true
+        );
+
+        game.birth(1,0);
+        game.birth(2,1);
+        game.birth(0,2);
+        game.birth(1,2);
+        game.birth(2,2);
+
+        function draw () {
+            ctx.clearRect(0,0,rect.width,rect.height);
+            const now = game.get();
+            for (let ii = 0;ii<now.width;ii++) {
+                for (let jj = 0;jj<now.height;jj++) {
+                    if (now.data[jj*now.width + ii]) {
+                        ctx.fillRect(cellSize*ii,jj*cellSize,cellSize,cellSize);   
+                    }
+                }
+            } 
+        }
+
+        setInterval(function(){
+            game.next();
+            draw();
+        },100);
+
+        (window.onresize = function(){
+            rect = can.getBoundingClientRect();
+            can.width = rect.width;
+            can.height = rect.height;
+        })();
+        
+        can.onclick = function (e) {
+            const p = [Math.floor(e.clientX/cellSize),Math.floor(e.clientY/cellSize)]; 
+            game.birth(p[0] + 1,p[1] + 0);
+            game.birth(p[0] + 2,p[1] + 1);
+            game.birth(p[0] + 0,p[1] + 2);
+            game.birth(p[0] + 1,p[1] + 2);
+            game.birth(p[0] + 2,p[1] + 2);
+        }
+    </script>
+</body>
+</html>
